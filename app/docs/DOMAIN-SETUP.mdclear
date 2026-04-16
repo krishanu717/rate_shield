@@ -1,0 +1,254 @@
+# 🚀 Domain + HTTPS Setup Guide
+
+This guide will help you deploy your distributed rate limiter with a custom subdomain and SSL certificates.
+
+## 📋 Prerequisites
+
+- A domain name (e.g., `yourdomain.com`)
+- Access to DNS settings for your domain
+- A server with public IP (EC2, DigitalOcean, etc.)
+- Docker and Docker Compose installed
+
+## 🏗️ Step 1: Server Setup
+
+### 1.1 Update the Configuration Files
+
+Edit the following files with your actual domain:
+
+**setup-ssl.sh:**
+```bash
+# Change these lines:
+SUBDOMAIN="api.yourdomain.com"  # Your actual subdomain
+EMAIL="admin@yourdomain.com"    # Your actual email
+```
+
+**nginx.conf:**
+```nginx
+server_name api.yourdomain.com;  # Your actual subdomain
+```
+
+### 1.2 Upload Files to Server
+
+```bash
+# Copy your entire project to the server
+scp -r distributed-rate-limiter user@your-server:/path/to/app/
+```
+
+## 🌐 Step 2: DNS Configuration
+
+### 2.1 Create Subdomain
+
+In your DNS provider (Route 53, Cloudflare, GoDaddy, etc.), create an A record:
+
+```
+Type: A
+Name: api  (or api.yourdomain.com)
+Value: YOUR_SERVER_PUBLIC_IP
+TTL: 300
+```
+
+### 2.2 Verify DNS
+
+```bash
+# Test DNS resolution
+nslookup api.yourdomain.com
+
+# Should return your server's public IP
+```
+
+## 🔒 Step 3: SSL Certificate Setup
+
+### 3.1 Run SSL Setup Script
+
+```bash
+# On your server, navigate to the project directory
+cd /path/to/distributed-rate-limiter
+
+# Make script executable and run
+chmod +x setup-ssl.sh
+sudo ./setup-ssl.sh
+```
+
+This script will:
+- Install Certbot
+- Generate Let's Encrypt SSL certificate
+- Configure Nginx to use SSL
+- Set up auto-renewal
+
+### 3.2 Verify SSL
+
+```bash
+# Test HTTPS connection
+curl -I https://api.yourdomain.com/health
+
+# Should return 200 OK with proper headers
+```
+
+## 🚀 Step 4: Deploy Application
+
+### 4.1 Start Services
+
+```bash
+# Start all services
+docker-compose up -d
+
+# Check status
+docker-compose ps
+```
+
+### 4.2 Test Endpoints
+
+```bash
+# Test HTTP (should redirect to HTTPS)
+curl -I http://api.yourdomain.com/test
+
+# Test HTTPS
+curl -I https://api.yourdomain.com/test
+
+# Test health endpoint
+curl https://api.yourdomain.com/health
+
+# Test rate limiting
+curl https://api.yourdomain.com/test
+
+# Test with API key
+curl -H "X-API-Key: api_key_pro" https://api.yourdomain.com/test
+```
+
+## 📊 Step 5: Monitoring
+
+### 5.1 View Logs
+
+```bash
+# Application logs
+docker-compose logs -f api-gateway
+
+# Analytics logs
+docker-compose logs -f analytics-service
+
+# Nginx access logs
+docker-compose logs -f nginx
+```
+
+### 5.2 SSL Certificate Status
+
+```bash
+# Check certificate expiry
+sudo certbot certificates
+
+# Test renewal
+sudo certbot renew --dry-run
+```
+
+## 🔧 Troubleshooting
+
+### Common Issues:
+
+**1. DNS not resolving:**
+```bash
+# Check DNS propagation
+dig api.yourdomain.com
+
+# May take up to 24 hours for DNS changes
+```
+
+**2. SSL certificate failed:**
+```bash
+# Check firewall (ports 80, 443 must be open)
+sudo ufw status
+
+# Check if domain resolves to server
+curl -I http://api.yourdomain.com
+```
+
+**3. Nginx not starting:**
+```bash
+# Check nginx configuration
+docker-compose logs nginx
+
+# Validate nginx config
+docker run --rm -v $(pwd)/nginx.conf:/etc/nginx/nginx.conf nginx:alpine nginx -t
+```
+
+**4. API not responding:**
+```bash
+# Check internal services
+docker-compose ps
+
+# Test internal API
+curl http://localhost:3000/health
+```
+
+## 🔄 Maintenance
+
+### Certificate Renewal
+
+Certificates auto-renew monthly via cron job. To renew manually:
+
+```bash
+sudo certbot renew
+docker-compose restart nginx
+```
+
+### Updates
+
+```bash
+# Pull latest changes
+git pull
+
+# Rebuild and restart
+docker-compose up --build -d
+```
+
+## 📈 Production Optimizations
+
+### Security Headers
+
+Nginx is configured with:
+- HSTS (HTTP Strict Transport Security)
+- X-Frame-Options
+- X-Content-Type-Options
+- XSS Protection
+
+### Rate Limiting
+
+Additional rate limiting at Nginx level:
+- 10 requests/second per IP
+- Burst allowance of 20 requests
+
+### SSL Configuration
+
+- TLS 1.2 and 1.3 only
+- Strong cipher suites
+- Perfect forward secrecy
+
+## 🎯 Your API Endpoints
+
+Once deployed, your API will be available at:
+
+```
+HTTPS: https://api.yourdomain.com/test
+Health: https://api.yourdomain.com/health
+```
+
+**Rate Limits:**
+- Free tier: 100 requests/minute
+- Pro tier: 1,000 requests/minute
+- Enterprise tier: 5,000 requests/minute
+
+**Authentication:**
+```bash
+curl -H "X-API-Key: api_key_enterprise" https://api.yourdomain.com/test
+```
+
+## 🚀 Next Steps
+
+After domain setup, consider:
+1. **Load Balancer** (ALB/NLB for high availability)
+2. **CDN** (CloudFront for global distribution)
+3. **Monitoring** (DataDog, New Relic)
+4. **Full AWS Migration** (ECS + ElastiCache + MSK)
+
+---
+
+**Need help?** Check the logs and ensure all DNS/firewall settings are correct! 🎯

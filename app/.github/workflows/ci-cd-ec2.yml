@@ -1,0 +1,80 @@
+name: CI/CD - EC2 Deployment
+
+on:
+  push:
+    branches: [ main ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build API Gateway
+      run: |
+        cd apps/api-gateway
+        npm install
+        npm run build
+
+    - name: Build Analytics Service
+      run: |
+        cd apps/analytics-service
+        npm install
+        npm run build
+
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Build and push API Gateway image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./apps/api-gateway/Dockerfile
+        push: true
+        tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:api-gateway
+
+    - name: Build and push Analytics image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./apps/analytics-service/Dockerfile
+        push: true
+        tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:analytics
+
+    - name: Write SSH key
+      run: |
+        echo "${{ secrets.EC2_SSH_KEY }}" > key.pem
+        chmod 600 key.pem
+
+    - name: Deploy to EC2
+      run: |
+        ssh -o StrictHostKeyChecking=no -i key.pem ubuntu@${{ secrets.EC2_HOST }} << 'EOF'
+          cd /home/ubuntu/app
+          git pull origin main
+          docker-compose down
+          docker-compose up -d --build
+        EOF
+
+    - name: Health check
+      run: |
+        sleep 20
+        curl -f http://${{ secrets.EC2_HOST }}/health || exit 1

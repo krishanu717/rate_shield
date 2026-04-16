@@ -1,0 +1,45 @@
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      command: ["node", "-r", "tsconfig-paths/register", "dist/apps/api-gateway/src/main.js"] # FIX
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=redis://redis:6379
+      - KAFKA_BROKERS=redpanda:9092
+    depends_on:
+      - redis
+      - redpanda
+    restart: unless-stopped
+    stdin_open: true      #ADD
+    tty: true             #ADD
+
+  analytics-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    
+  command: ["node", "-r", "tsconfig-paths/register", "dist/apps/analytics-service/src/main.js"]
+
+    environment:
+      - NODE_ENV=production
+      - KAFKA_BROKERS=redpanda:9092
+    depends_on:
+      - redpanda
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api-gateway
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+

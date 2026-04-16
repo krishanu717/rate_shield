@@ -1,0 +1,197 @@
+# updated
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY_API: distributed-rate-limiter-prod-api-gateway
+  ECR_REPOSITORY_ANALYTICS: distributed-rate-limiter-prod-analytics
+  ECS_CLUSTER: distributed-rate-limiter-prod-cluster
+  ECS_SERVICE_API: distributed-rate-limiter-prod-api-gateway
+  ECS_SERVICE_ANALYTICS: distributed-rate-limiter-prod-analytics
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Run tests
+      run: npm test
+
+    
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build and push API Gateway image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        # Build API Gateway
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_API:$IMAGE_TAG \
+          --target api-gateway \
+          -f Dockerfile .
+
+        # Push API Gateway
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY_API:$IMAGE_TAG
+
+        # Tag as latest
+        docker tag $ECR_REGISTRY/$ECR_REPOSITORY_API:$IMAGE_TAG \
+          $ECR_REGISTRY/$ECR_REPOSITORY_API:latest
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY_API:latest
+
+    - name: Build and push Analytics image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        # Build Analytics
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_ANALYTICS:$IMAGE_TAG \
+          --target analytics \
+          -f Dockerfile .
+
+        # Push Analytics
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY_ANALYTICS:$IMAGE_TAG
+
+        # Tag as latest
+        docker tag $ECR_REGISTRY/$ECR_REPOSITORY_ANALYTICS:$IMAGE_TAG \
+          $ECR_REGISTRY/$ECR_REPOSITORY_ANALYTICS:latest
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY_ANALYTICS:latest
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Update API Gateway service
+      run: |
+        aws ecs update-service \
+          --cluster $ECS_CLUSTER \
+          --service $ECS_SERVICE_API \
+          --force-new-deployment \
+          --region $AWS_REGION
+
+    - name: Update Analytics service
+      run: |
+        aws ecs update-service \
+          --cluster $ECS_CLUSTER \
+          --service $ECS_SERVICE_ANALYTICS \
+          --force-new-deployment \
+          --region $AWS_REGION
+
+    - name: Wait for API Gateway deployment
+      run: |
+        aws ecs wait services-stable \
+          --cluster $ECS_CLUSTER \
+          --services $ECS_SERVICE_API \
+          --region $AWS_REGION
+
+    - name: Wait for Analytics deployment
+      run: |
+        aws ecs wait services-stable \
+          --cluster $ECS_CLUSTER \
+          --services $ECS_SERVICE_ANALYTICS \
+          --region $AWS_REGION
+
+    - name: Verify deployment
+      run: |
+        echo "✅ Deployment completed successfully!"
+        aws ecs describe-services \
+          --cluster $ECS_CLUSTER \
+          --services $ECS_SERVICE_API $ECS_SERVICE_ANALYTICS \
+          --region $AWS_REGION \
+          --query 'services[].[serviceName,runningCount,desiredCount,status]' \
+          --output table
+
+  terraform-plan:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && contains(github.event.head_commit.modified, 'terraform/')
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+
+    - name: Terraform Init
+      working-directory: ./terraform
+      run: terraform init
+
+    - name: Terraform Plan
+      working-directory: ./terraform
+      run: terraform plan -no-color
+
+  security-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'

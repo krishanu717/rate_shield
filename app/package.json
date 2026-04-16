@@ -1,0 +1,31 @@
+{
+  "name": "distributed-rate-limiter",
+  "version": "1.0.0",
+  "description": "Tech Stack: - NestJS - Redis - Kafka - Kubernetes",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/apps/api-gateway/src/main.js",
+    "start:analytics": "node dist/apps/analytics-service/src/main.js",
+    "start:load-generator": "node apps/load-generator/test.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@nestjs/common": "^11.1.18",
+    "@nestjs/core": "^11.1.18",
+    "@nestjs/platform-express": "^11.1.18",
+    "kafkajs": "^2.2.4",
+    "redis": "^5.11.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "tsconfig-paths": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.2"
+  }
+}

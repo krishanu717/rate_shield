@@ -1,0 +1,160 @@
+# CloudWatch Dashboard for Distributed Rate Limiter
+# This creates a comprehensive monitoring dashboard
+
+Resources:
+  RateLimiterDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub "${AWS::StackName}-dashboard"
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  ["AWS/ECS", "CPUUtilization", "ServiceName", "${ApiGatewayService}", "ClusterName", "${EcsCluster}", {"label": "API Gateway CPU"}],
+                  [".", "CPUUtilization", "ServiceName", "${AnalyticsService}", "ClusterName", "${EcsCluster}", {"label": "Analytics CPU"}]
+                ],
+                "view": "timeSeries",
+                "stacked": false,
+                "region": "${AWS::Region}",
+                "title": "ECS CPU Utilization",
+                "period": 300
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  ["AWS/ECS", "MemoryUtilization", "ServiceName", "${ApiGatewayService}", "ClusterName", "${EcsCluster}", {"label": "API Gateway Memory"}],
+                  [".", "MemoryUtilization", "ServiceName", "${AnalyticsService}", "ClusterName", "${EcsCluster}", {"label": "Analytics Memory"}]
+                ],
+                "view": "timeSeries",
+                "stacked": false,
+                "region": "${AWS::Region}",
+                "title": "ECS Memory Utilization",
+                "period": 300
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", "${LoadBalancer}", {"label": "Total Requests"}],
+                  [".", "HTTPCode_Target_2XX_Count", ".", ".", {"label": "2XX Responses"}],
+                  [".", "HTTPCode_Target_4XX_Count", ".", ".", {"label": "4XX Responses"}],
+                  [".", "HTTPCode_Target_5XX_Count", ".", ".", {"label": "5XX Responses"}]
+                ],
+                "view": "timeSeries",
+                "stacked": false,
+                "region": "${AWS::Region}",
+                "title": "ALB Request Metrics",
+                "period": 300
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  ["AWS/ElastiCache", "CPUUtilization", "CacheClusterId", "${RedisCluster}", {"label": "Redis CPU"}],
+                  [".", "CurrConnections", ".", ".", {"label": "Redis Connections"}],
+                  [".", "CacheHits", ".", ".", {"label": "Redis Cache Hits"}],
+                  [".", "CacheMisses", ".", ".", {"label": "Redis Cache Misses"}]
+                ],
+                "view": "timeSeries",
+                "stacked": false,
+                "region": "${AWS::Region}",
+                "title": "Redis Performance Metrics",
+                "period": 300
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 12,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  ["AWS/Kafka", "BytesInPerSec", "Cluster Name", "${KafkaCluster}", {"label": "Kafka Bytes In"}],
+                  [".", "BytesOutPerSec", ".", ".", {"label": "Kafka Bytes Out"}],
+                  [".", "MessagesInPerSec", ".", ".", {"label": "Kafka Messages In"}]
+                ],
+                "view": "timeSeries",
+                "stacked": false,
+                "region": "${AWS::Region}",
+                "title": "Kafka Throughput Metrics",
+                "period": 300
+              }
+            },
+            {
+              "type": "log",
+              "x": 12,
+              "y": 12,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "query": "SOURCE '/ecs/distributed-rate-limiter-prod/api-gateway' | fields @timestamp, @message\n| filter @message like /rate_limit_blocked/\n| sort @timestamp desc\n| limit 100",
+                "region": "${AWS::Region}",
+                "title": "Rate Limit Blocks (Last 100)",
+                "view": "table"
+              }
+            },
+            {
+              "type": "log",
+              "x": 0,
+              "y": 18,
+              "width": 24,
+              "height": 6,
+              "properties": {
+                "query": "SOURCE '/ecs/distributed-rate-limiter-prod/api-gateway' | fields @timestamp, @message\n| filter @message like /rate_limit_check/\n| stats count() by bin(5m)\n| sort @timestamp desc",
+                "region": "${AWS::Region}",
+                "title": "Rate Limit Requests (5min intervals)",
+                "view": "timeSeries",
+                "stacked": false
+              }
+            }
+          ]
+        }
+
+Parameters:
+  EcsCluster:
+    Type: String
+    Description: ECS Cluster Name
+
+  ApiGatewayService:
+    Type: String
+    Description: API Gateway ECS Service Name
+
+  AnalyticsService:
+    Type: String
+    Description: Analytics ECS Service Name
+
+  LoadBalancer:
+    Type: String
+    Description: ALB Name
+
+  RedisCluster:
+    Type: String
+    Description: Redis Cluster ID
+
+  KafkaCluster:
+    Type: String
+    Description: Kafka Cluster Name

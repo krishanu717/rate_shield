@@ -1,0 +1,80 @@
+# Multi-stage Dockerfile for AWS ECS Deployment
+FROM node:18-alpine AS base
+
+# Install dependencies only when needed
+FROM base AS deps
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+RUN npm ci --only=production && npm cache clean --force
+
+# Build stage for API Gateway
+FROM base AS api-gateway-builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+
+# Build API Gateway (if needed)
+RUN npm run build 2>/dev/null || echo "No build step needed"
+
+# Production image for API Gateway
+FROM base AS api-gateway
+WORKDIR /app
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 rate-limiter
+
+# Copy dependencies
+COPY --from=deps --chown=rate-limiter:nodejs /app/node_modules ./node_modules
+
+# Copy source code
+COPY --chown=rate-limiter:nodejs . .
+
+# Switch to non-root user
+USER rate-limiter
+
+# Expose port
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:3000/health || exit 1
+
+# Start API Gateway
+CMD ["npm", "run", "start"]
+
+# Build stage for Analytics Service
+FROM base AS analytics-builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+
+# Build Analytics (if needed)
+RUN npm run build 2>/dev/null || echo "No build step needed"
+
+# Production image for Analytics Service
+FROM base AS analytics
+WORKDIR /app
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 rate-limiter
+
+# Copy dependencies
+COPY --from=deps --chown=rate-limiter:nodejs /app/node_modules ./node_modules
+
+# Copy source code
+COPY --chown=rate-limiter:nodejs . .
+
+# Switch to non-root user
+USER rate-limiter
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD pgrep -f analytics || exit 1
+
+# Start Analytics Service
+CMD ["npm", "run", "start:analytics"]
